@@ -1,20 +1,48 @@
 from fastapi import FastAPI, HTTPException, status
 from pydantic import BaseModel
 from typing import List
-
+from fastapi import File, UploadFile
 # Inicializamos FastAPI
 app = FastAPI()
 
 class ProblemData(BaseModel):
     maximizar: bool
     coeficientes: list[float]
-    restricciones: list[list[float]]  # Lista de restricciones, cada una como una lista
+    restricciones: list[list[float]]  # Lista de restricciones, como una lista
 
 @app.post("/simplex")
+#Metodo que recibe parametros como JSON
 async def resolver_simplex(data: ProblemData):
     try:
         simplex = Simplex(data.maximizar, data.coeficientes, data.restricciones)
         resultados = simplex.ejecutar_simplex()
+        return {"resultados": resultados}
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+@app.post("/simplex/file")
+#Metodo que recibe parametros de un txt
+async def resolver_simplex_file(file: UploadFile = File(...)):
+    try:
+        contents = await file.read()  # Leer el contenido del archivo
+        data = contents.decode('utf-8').strip()  # Decodificar y quitar espacios
+        lines = data.split('\n')  # Separar líneas
+        
+        # Procesar la primera línea para obtener la maximización y coeficientes
+        first_line = lines[0].split(',')
+        maximizar = first_line[0].strip().lower() == 'true'
+        coeficientes = list(map(float, first_line[1:]))  # Convertir a float
+
+        # Aqui procesa las líneas restantes para obtener las restricciones
+        restricciones = []
+        for line in lines[1:]:
+            if line.strip():  # Ignora líneas vacías
+                restricciones.append(list(map(float, line.split(','))))
+
+        # Llama a la clase Simplex con los datos procesados
+        simplex = Simplex(maximizar, coeficientes, restricciones)
+        resultados = simplex.ejecutar_simplex()
+        
         return {"resultados": resultados}
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
@@ -102,16 +130,16 @@ class Simplex:
                 self.matriz_2[i][j] = None
 
     def ejecutar_simplex(self):
-        # Inicializa la matriz utilizando los coeficientes y restricciones del input
+        # Inicializa la matriz utilizando los coeficientes y restricciones 
         self.matriz_1 = [[0] * self.num_colum for _ in range(self.num_filas)]
         
         # Rellenar la matriz con los coeficientes de Z y las restricciones
         for i in range(self.num_filas - 1):
             for j in range(self.numero_varZ):
                 self.matriz_1[i][j] = self.restricciones[i][j]
-            self.matriz_1[i][self.num_colum - 1] = self.restricciones[i][-1]  # Lado derecho de la desigualdad (RHS)
+            self.matriz_1[i][self.num_colum - 1] = self.restricciones[i][-1]  # (RHS)
 
-        # Coeficientes de la función objetivo (última fila)
+        # Coeficientes de la función objetivo
         for j in range(self.numero_varZ):
             self.matriz_1[self.num_filas - 1][j] = -self.coeficientes[j]  # Maximización o minimización
         
