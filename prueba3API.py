@@ -2,61 +2,29 @@ from fastapi import FastAPI, HTTPException, status
 from pydantic import BaseModel
 from typing import List
 from fastapi import File, UploadFile
-# Inicializamos FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 class ProblemData(BaseModel):
     maximizar: bool
     coeficientes: list[float]
-    restricciones: list[list[float]]  # Lista de restricciones, como una lista
-
-@app.post("/simplex")
-#Metodo que recibe parametros como JSON
-async def resolver_simplex(data: ProblemData):
-    try:
-        simplex = Simplex(data.maximizar, data.coeficientes, data.restricciones)
-        resultados = simplex.ejecutar_simplex()
-        return {"resultados": resultados}
-    except Exception as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-
-@app.post("/simplex/file")
-#Metodo que recibe parametros de un txt
-async def resolver_simplex_file(file: UploadFile = File(...)):
-    try:
-        contents = await file.read()  # Leer el contenido del archivo
-        data = contents.decode('utf-8').strip()  # Decodificar y quitar espacios
-        lines = data.split('\n')  # Separar líneas
-        
-        # Procesar la primera línea para obtener la maximización y coeficientes
-        first_line = lines[0].split(',')
-        maximizar = first_line[0].strip().lower() == 'true'
-        coeficientes = list(map(float, first_line[1:]))  # Convertir a float
-
-        # Aqui procesa las líneas restantes para obtener las restricciones
-        restricciones = []
-        for line in lines[1:]:
-            if line.strip():  # Ignora líneas vacías
-                restricciones.append(list(map(float, line.split(','))))
-
-        # Llama a la clase Simplex con los datos procesados
-        simplex = Simplex(maximizar, coeficientes, restricciones)
-        resultados = simplex.ejecutar_simplex()
-        
-        return {"resultados": resultados}
-    except Exception as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-
-@app.get("/")
-def root():
-    return {"message": "API funcionando"}
+    restricciones: list[list[float]]
 
 class Simplex:
     def __init__(self, maximizar: bool, coeficientes: List[float], restricciones: List[List[float]]):
         self.numero_varZ = 3  # Número fijo de variables
         self.numero_inec = 3  # Número fijo de restricciones
-        self.coeficientes = coeficientes  # Coeficientes de la función objetivo
-        self.restricciones = restricciones  # Lista de listas para restricciones
+        self.coeficientes = coeficientes
+        self.restricciones = restricciones
         self.num_filas = self.numero_inec + 1
         self.num_colum = self.numero_inec + self.numero_varZ + 2
         self.matriz_1 = []
@@ -141,9 +109,8 @@ class Simplex:
 
         # Coeficientes de la función objetivo
         for j in range(self.numero_varZ):
-            self.matriz_1[self.num_filas - 1][j] = -self.coeficientes[j]  # Maximización o minimización
+            self.matriz_1[self.num_filas - 1][j] = -self.coeficientes[j]
         
-        # Verifica si es un problema de maximización o minimización
         if not self.maximizar:
             for j in range(self.numero_varZ):
                 self.matriz_1[self.num_filas - 1][j] *= -1
@@ -161,7 +128,6 @@ class Simplex:
                     self.matriz_1[i][j] = self.matriz_2[i][j]
             self.limpiar_matriz()
 
-        # Devuelve las respuestas finales en formato JSON
         return self.respuestas
 
     def actualizar_respuestas(self):
@@ -173,3 +139,39 @@ class Simplex:
                     self.respuestas[f"X{i + 1}"] = self.matriz_2[i][self.num_colum - 1]
             elif i == self.num_filas - 1:
                 self.respuestas["Z"] = self.matriz_2[i][self.num_colum - 1]
+
+@app.post("/simplex")
+async def resolver_simplex(data: ProblemData):
+    try:
+        simplex = Simplex(data.maximizar, data.coeficientes, data.restricciones)
+        resultados = simplex.ejecutar_simplex()
+        return {"resultados": resultados}
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+@app.post("/simplex/file")
+async def resolver_simplex_file(file: UploadFile = File(...)):
+    try:
+        contents = await file.read()
+        data = contents.decode('utf-8').strip()
+        lines = data.split('\n')
+        
+        first_line = lines[0].split(',')
+        maximizar = first_line[0].strip().lower() == 'true'
+        coeficientes = list(map(float, first_line[1:]))
+
+        restricciones = []
+        for line in lines[1:]:
+            if line.strip():
+                restricciones.append(list(map(float, line.split(','))))
+
+        simplex = Simplex(maximizar, coeficientes, restricciones)
+        resultados = simplex.ejecutar_simplex()
+        
+        return {"resultados": resultados}
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+@app.get("/")
+def root():
+    return {"message": "API funcionando"}
